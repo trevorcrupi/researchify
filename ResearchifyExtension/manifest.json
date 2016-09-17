@@ -1,0 +1,10 @@
+{
+  "name": "Researchify",
+  "version": "1.0",
+  "manifest_version": 2,
+  "description": "Save articles for later research.",
+  "browser_action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "<all_urls>"]
+}

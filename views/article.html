@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>{{ article.title }}</title>
+
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" />
+	</head>
+
+	<body>
+		<div class="container">
+			<h1>{{ article.title }}</h1>
+			<div class="content">
+				{{article.content|safe}}
+			</div>
+		</div>
+	</body>
+	<script src="/js/marked.min.js"></script>
+	<script src="/js/vendor.bundle.js"></script>
+</html>
