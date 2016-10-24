@@ -1,68 +1,49 @@
 // Babel ES6/JSX Compiler
 require('babel-register');
 
+var swig  = require('swig');
+var React = require('react');
+var ReactDOM = require('react-dom/server');
+var Router = require('react-router');
+var routes = require('./app/routes');
+
 var express    = require('express');
-var bodyParser = require('body-parser');
-var app        = express();
-var morgan     = require('morgan');
-var cheerio    = require('cheerio');
-var request    = require('request');
-var swig       = require('swig');
-var config     = require('./config/config');
-var mongoose   = require('mongoose');
-var parser     = require('./parser/Parser');
 var path       = require('path');
+var logger     = require('morgan');
+var bodyParser = require('body-parser');
+var mongoose   = require('mongoose');
+var request    = require('request');
 
-mongoose.connect(config.database); // connect to our database
-var Article = require('./models/article');
+var config  = require("./config/config.js");
+var Article = require("./models/articles.js");
+var Like = require("./models/Likes.js");
 
-// configure app
+var app = express();
 
-// configure body parser
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(bodyParser.urlencoded({ extended: true }));
+mongoose.connect(config.database);
+mongoose.connection.on('error', function() {
+  console.info("Could not run mongodb, did you forget to run mongod?");
+});
+
+
+app.set('port', process.env.PORT || 3000);
+app.use(logger('dev'));
 app.use(bodyParser.json());
-app.set('json spaces', 2);
-app.use(morgan('dev'));
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-var port = process.env.PORT || 3000; // set our port
-
-var api = express.Router();
-var router = express.Router();
-
-router.get('/', function(req, res) {
-	Article.find(function(err, articles) {
-		if(err)
-			res.send(err);
-		var page = swig.renderFile('views/list.html', { articles: articles });
-		res.status(200).send(page);
-	});
-});
-
-router.get('/article/:id', function(req, res) {
-	Article.findById(req.params.id, function(err, article) {
-		if(err)
-			res.status(404).send("<h1>We're having trouble finding this title right now. Sorry!</h1>");
-
-
-		var page = swig.renderFile('views/article.html', { article: article });
-		res.status(200).send(page);
-	});
-});
-
-// middleware to use for all requests
-api.use(function(req, res, next) {
-	// do logging
-	console.log('Request is coming in.');
-	next();
-});
+/**
+  * POST
+  * /register
+**/
+//app.post('/register', );*
 
 // test route to make sure everything is working (accessed at GET http://localhost:8080/api)
-api.get('/', function(req, res) {
-	res.json({ message: 'hooray! welcome to our api!' });	
+app.get('/api/', function(req, res) {
+	res.json({ message: 'hooray! welcome to our api!' });
 });
 
-api.route('/article')
+app.route('/api/article')
 
 	.post(function(req, res) {
 	  //All the web scraping magic will happen here
@@ -84,7 +65,7 @@ api.route('/article')
 		        if (!error && response.statusCode == 200) {
 		            console.log(body);
 		        }
-		  	});			
+		  	});
 		} else {
 			options.uri = 'http://localhost:5000/parse';
 		  	request.post(options, function(error, response, body) {
@@ -93,34 +74,95 @@ api.route('/article')
 		        }
 		  	});
 		}
-	})
-
-	.get(function(req, res) {
-		Article.find(function(err, articles) {
-			if(err)
-				res.send(err);
-
-			res.json(articles);
-		});
 	});
 
-api.route('/article/:id')
+app.route('/api/likes')
+    .get(function(req, res) {
+      Like.find(function(e, likes) {
+        if(e) {
+          res.status(400).send({ message: 'Could not retrieve likes.' });
+        } else {
+          var likesIds = likes.map(function(el) {
+            return el.article_id;
+          });
+          console.log(likesIds);
+          Article.find({
+              '_id': { $in: likesIds}
+          },function(err, docs){
+
+              if(e)
+                res.status(400).send({ message: 'Could not retrieve liked articles.' });
+              else
+               res.send(docs);
+          });
+        }
+      });
+    });
+
+
+app.route('/api/like')
+    .put(function(req, res) {
+      var ArticleLike = new Like({ article_id: req.body.article_id });
+      ArticleLike.save(function(err, data) {
+        if(err)
+          return res.status(400).send({ message: 'XML Parse Error' });
+
+        else
+          res.send({ message: "Successfully Added to 'Likes'" });
+      });
+    });
+
+
+app.route('/api/unlike')
+    .put(function(req, res) {
+      Like.find({article_id: req.body.article_id}).remove().exec(function(err) {
+        if(err)
+          res.status(400).send({ message: "Could not unlike :(" });
+        else
+          res.send({ message: "Successfully Removed from 'Likes'" });
+      });
+    });
+
+app.route('/api/articles')
+
+  .get(function(req, res) {
+    Article.find().sort([['_id', -1]]).limit(5).exec(function(e, data) {
+        //handle result
+        if(e) res.send(e)
+
+        res.send(data);
+    });
+  });
+
+
+app.route('/api/article/:id')
 
 	.get(function(req, res) {
 		Article.findById(req.params.id, function(err, article) {
 			if(err)
 				res.json({error: err});
-			
+
 			res.json(article);
 		});
 	});
 
 
+app.use(function(req, res) {
+  Router.match({ routes: routes.default, location: req.url }, function(err, redirectLocation, renderProps) {
+    if (err) {
+      res.status(500).send(err.message)
+    } else if (redirectLocation) {
+      res.status(302).redirect(redirectLocation.pathname + redirectLocation.search)
+    } else if (renderProps) {
+        var html = ReactDOM.renderToString(React.createElement(Router.RoutingContext, renderProps));
+        var page = swig.renderFile('views/index.html', { html: html });
+        res.status(200).send(page);
+    } else {
+      res.status(404).send('Page Not Found')
+    }
+  });
+});
 
-// REGISTER OUR ROUTES -------------------------------
-app.use('/api', api);
-app.use('/', router);
-
-app.listen('3000')
-console.log('Magic happens on port 3000');
-exports = module.exports = app;
+app.listen(app.get('port'), function() {
+  console.log('Express server listening on port ' + app.get('port'));
+});
